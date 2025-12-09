@@ -1,0 +1,218 @@
+﻿@page "/"
+@using PermitApplication.Models
+@using System.Data
+@using System.Net.Http.Json
+@rendermode InteractiveServer
+@inject IJSRuntime JS
+@inject HttpClient Http
+
+@* Keep this for populating dropdowns from DB *@
+@inject PermitsRepository _db
+
+@* Inject this for structured navigation if needed later *@
+@inject NavigationManager Navigation
+
+@* To access configuration settings for SQLQueries *@
+@using Microsoft.Extensions.Options
+@inject IConfiguration Configuration
+
+<PageTitle>Water Management Permitting</PageTitle>
+
+<h1>
+    Welcome to WMD Permitting!
+</h1>
+Permits Request System - Please fill out the form below to request a permit.
+(This is a fully functional Blazor one-page web app demo connected to a SQL Server database and a Web API backend.
+Its purpose is to demonstrate a full-stack solution using Blazor Server, DTO, ADO.NET, and ASP.NET Core Web API.
+This is for teaching and learning purposes!)
+
+@if (LastSubmitResult != null)
+{
+    <h2 class="alert @statusClass">
+        @LastSubmitResult
+    </h2>
+}
+
+@* Use the OnSubmit event to trigger the API call method *@
+<EditForm EditContext="FormContext" OnSubmit="@HandleValidSubmit" FormName="FormName">
+    <DataAnnotationsValidator />
+
+    @* First Name *@
+    <br />
+
+    <div class="form-group">
+        <label for="Name">Name</label>
+        <InputText @bind-Value="SubmitterUser.FirstName" placeholder="Enter name" class="form-control" style="width: 600px;" id="Name" />
+        <ValidationMessage For="() => SubmitterUser.FirstName" />
+    </div>
+    <br />
+
+    @* Last Name *@
+    <div class="form-group">
+        <label for="Lastname">Lastname</label>
+        <InputText @bind-Value=SubmitterUser.LastName placeholder="Enter lastname" class="form-control" style="width: 600px;" id="Lastname" />
+        <ValidationMessage For=@(() => SubmitterUser.LastName) />
+    </div>
+    <br />
+
+    @* Address *@
+    <div class="form-group">
+        <label>Address</label>
+        @* Bind to the inner address object that the API expects *@
+        <InputText @bind-Value=SubmitterUser.Address.FullUSPSAddress placeholder="Enter address" class="form-control" style="width: 600px;" id="Address" />
+        <ValidationMessage For=@(() => SubmitterUser.Address.FullUSPSAddress) />
+    </div>
+    <br />
+
+    @* Permit Type Dropdown *@
+    <div class="form-group">
+        <label>Permits</label>
+        <InputSelect id="permittype" @bind-Value="SubmitterUser.PermitType.PermitTypeID"
+                     class="form-control" style="width: 300px;">
+            <option value="">-- Select Permit Type --</option>
+            @foreach (var permitType in PermitType)
+            {
+                <option value="@permitType.PermitTypeID">@permitType.PermitTypeName</option>
+            }
+        </InputSelect>
+        <ValidationMessage For="@(() => SubmitterUser.PermitType.PermitTypeID)" />
+    </div>
+
+    @* County Dropdown *@
+    <div class="form-group">
+        <label>County</label>
+        <InputSelect id="counties" @bind-Value="SubmitterUser.County.CountyID"
+                     placeholder="Select county" class="form-control" style="width: 300px;">
+            <option value="">-- Select County --</option>
+            @foreach (var county in Counties)
+            {
+                <option value="@county.CountyID">@county.CountyName</option>
+            }
+        </InputSelect>
+        <ValidationMessage For="@(() => SubmitterUser.County.CountyID)" />
+    </div>
+
+    <br />
+    <div>
+        <br />
+        <div class="form-group">
+            @* type="button" prevents reset from triggering the OnSubmit handler *@
+            <input type="button" value="Clear" class="btn btn-outline-danger" style="width: 300px;" @onclick="ClearInput" />
+
+            @* type="submit" triggers the EditForm's OnSubmit handler (HandleValidSubmit) *@
+            <button type="submit" class="btn btn-primary" style="width: 300px;">Submit</button>
+        </div>
+    </div>
+</EditForm>
+
+
+@code {
+    // --- Model Instantiation and State ---
+    // Ensure you only declare these once
+    private string SelectedCountyId { get; set; } = "";
+    private string SelectedTypeId { get; set; } = "";
+    public SubmitterUser SubmitterUser { get; set; } = new();
+    public EditContext FormContext { get; set; } = null!;
+
+    private List<PermitTypeAndCounty> Counties { get; set; } = new List<PermitTypeAndCounty>();
+    private List<PermitTypeAndCounty> PermitType { get; set; } = new List<PermitTypeAndCounty>();
+
+    private string LastSubmitResult;
+    private string statusClass; // For coloring the result message
+
+    // --- Lifecycle and Initialization ---
+
+    protected override void OnInitialized()
+    {
+        // Initialize your model to avoid nulls
+        SubmitterUser = new SubmitterUser
+        {
+            Address = new SubmitterAddress(),
+            PermitType = new PermitTypeAndCounty(),
+            County = new PermitTypeAndCounty()
+        };
+
+        FormContext = new(SubmitterUser);
+    }
+
+    private string SQL_SW_COUNTIES;
+    private string SQL_SW_PERMITS_TYPES;
+
+    // Check appSettings.json for SQL queries
+    protected override async Task OnInitializedAsync()
+    {
+        // Your existing database calls to fill dropdowns
+
+        SQL_SW_COUNTIES = Configuration.GetValue<string>("SQLQueries:SQL_SW_COUNTIES");
+        DataTable countiesTable = await _db.GetDataAsyncForCounties(SQL_SW_COUNTIES);
+        foreach (DataRow row in countiesTable.Rows)
+        {
+            Counties.Add(new PermitTypeAndCounty
+            {
+                CountyID = Convert.ToInt32(row["County_ID"]),
+                CountyName = row["County_Name"].ToString()
+            });
+        }
+
+        SQL_SW_PERMITS_TYPES = Configuration.GetValue<string>("SQLQueries:SQL_SW_PERMITS_TYPES");
+        DataTable permitsTable = await _db.GetDataAsyncForPermitsTypes(SQL_SW_PERMITS_TYPES);
+        foreach (DataRow row in permitsTable.Rows)
+        {
+            PermitType.Add(new PermitTypeAndCounty
+            {
+                PermitTypeID = Convert.ToInt32(row["Type_ID"]),
+                PermitTypeName = row["Type"].ToString()
+            });
+        }
+    }
+
+    private async Task HandleValidSubmit()
+    {
+        LastSubmitResult = "Submitting data...";
+        statusClass = "alert-info";
+
+        var dto = new PermitRequestDto
+        {
+            FirstName = SubmitterUser.FirstName,
+            LastName = SubmitterUser.LastName,
+            FullUSPSAddress = SubmitterUser.Address.FullUSPSAddress,
+            Type_ID = SubmitterUser.PermitType.PermitTypeID,
+            County_ID = SubmitterUser.County.CountyID
+        };
+
+        try
+        {
+            var response = await Http.PostAsJsonAsync("api/Home/submit", dto);
+            response.EnsureSuccessStatusCode();
+
+            var apiMessage = await response.Content.ReadAsStringAsync();
+            LastSubmitResult = $"Success: {apiMessage}";
+            statusClass = "alert-success";
+
+            await JS.InvokeVoidAsync("alert", apiMessage);
+            ClearInput();
+        }
+        catch (Exception ex)
+        {
+            LastSubmitResult = $"Error submitting form: {ex.Message}";
+            statusClass = "alert-danger";
+            await JS.InvokeVoidAsync("alert", LastSubmitResult);
+        }
+    }
+
+    // --- Utility Methods ---
+
+    public void ClearInput()
+    {
+        // Reset models to clear form fields
+        SubmitterUser = new SubmitterUser();
+        SelectedTypeId = "";
+        SelectedCountyId = "";
+        LastSubmitResult = "";
+        statusClass = "";
+
+        // Reinitialize context to clear validation messages
+        FormContext = new EditContext(SubmitterUser);
+        StateHasChanged(); // Notify Blazor UI needs re-rendering
+    }
+}

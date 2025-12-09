@@ -1,0 +1,18 @@
+[
+  {
+    "ContainingType": "PermitApplication.Controllers.HomeController",
+    "Method": "SubmitCreatePermitRequest",
+    "RelativePath": "api/Home/submit",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "PermitApplication.Models.PermitRequestDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  }
+]
